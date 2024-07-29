@@ -2,16 +2,14 @@
 chat_interface = None
 chat_status = None
 markdown_display = None
+progress_indicator = None
 
 input_future=None
+chat_task=None
+groupchat=None
+groupchat_manager=None
+is_interrupted=None
 
-avatars = {
-    "FinancialAgent": "💵",
-    "SightseeingAgent":"🏜️",
-    "Admin":"👨🏻‍💼",
-    'Planner':"🗓",
-    'Critic':'📝'
-}
 
 llm_config={"config_list": [
             {

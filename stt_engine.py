@@ -1,3 +1,4 @@
+import os
 import panel as pn
 import websocket
 import hashlib
@@ -135,9 +136,9 @@ class STTEngine():
 
     def run(self):
         global ws_param, ws
-        ws_param = Ws_Param(APPID='5d27dbc6',
-                            APIKey='d61163a9bdb5d0a0508f98dee66e0383',
-                            APISecret='ZTQ5NTAwZTk0YzQ5MDdhNWViZjcyYjVh')
+        ws_param = Ws_Param(APPID=os.getenv("STT_APP_ID"),
+                            APIKey=os.getenv("STT_APP_KEY"),
+                            APISecret=os.getenv("STT_APP_SECRER"))
         websocket.enableTrace(False)
         wsUrl = ws_param.create_url()
         ws = websocket.WebSocketApp(wsUrl, on_message=self.on_message, on_error=self.on_error, on_close=self.on_close)

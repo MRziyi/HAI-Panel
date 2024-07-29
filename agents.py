@@ -1,6 +1,7 @@
 # To install required packages:
 # pip install pyautogen==0.2.9 panel==1.3.8
 import json
+import re
 import autogen
 
 import panel as pn
@@ -10,9 +11,14 @@ from autogen import register_function
 from tools import human_feedback_tool
 
 
-def print_messages(recipient, messages, sender, config):
-    print(f"Messages from: {sender.name} sent to: {recipient.name} | num messages: {len(messages)} | message: {messages[-1]}")
-    content = messages[-1]['content']
+def print_message_callback(recipient, messages, sender, config):
+    last_message = messages[-1]
+    print(f"Messages from: {sender.name} sent to: {recipient.name} | num messages: {len(messages)} | message: {last_message}")
+    print_message(recipient.name, last_message)
+    return False, None  # 确保代理通信流程继续
+
+def print_message(recipient_name, message):
+    content = message.get('content', '')
     try:
         data = json.loads(content)
         md_content = data.get('content', '')  # 从 JSON 中获取 'content' 字段
@@ -21,20 +27,40 @@ def print_messages(recipient, messages, sender, config):
         # 如果解析失败，则将 content 视为普通字符串
         md_content = None
         chat_content = None
-    if(md_content):
-        global_vars.markdown_display.object = md_content
-    if all(key in messages[-1] for key in ['name']):
-        global_vars.chat_interface.send(f'@{recipient.name}, '+(chat_content or md_content or content), user=messages[-1]['name'], avatar=global_vars.avatars[messages[-1]['name']], respond=False)
-    else:
-        global_vars.chat_interface.send(chat_content or md_content or content, user=recipient.name, avatar=global_vars.avatars[recipient.name], respond=False)
     
-    return False, None  # required to ensure the agent communication flow continues
+    if md_content:
+        global_vars.markdown_display.object = md_content
 
+    sender_name = message.get('name', recipient_name)
+    message_content = chat_content or md_content or content
+
+    global_vars.chat_interface.add_message(
+        f'@{recipient_name}, {message_content}' if 'name' in message else message_content,
+        name=sender_name,
+    )
+    # 更新Progress
+    try:
+        data = json.loads(content)
+        tasks = data.get("steps", None) 
+        current_task=data.get("current_step", None)
+    except json.JSONDecodeError:
+        # 如果解析失败，则将 content 视为普通字符串
+        tasks = None
+        current_task = None
+    if(tasks and current_task):
+        global_vars.progress_indicator.tasks=tasks
+        global_vars.progress_indicator.current_task=current_task
+
+    
 class MyConversableAgent(autogen.ConversableAgent):
-
     async def a_get_human_input(self, prompt: str) -> str:
+        if(global_vars.is_interrupted):
+            content = global_vars.is_interrupted
+            global_vars.is_interrupted=None
+            return content
+        
         print('--getting human input--')  # or however you wish to display the prompt
-        global_vars.chat_interface.send(prompt, user="System", respond=False)
+        global_vars.chat_interface.send(prompt, user="System")
         # Create a new Future object for this input operation if none exists
         if global_vars.input_future is None or global_vars.input_future.done():
             global_vars.input_future = asyncio.Future()
@@ -46,7 +72,6 @@ class MyConversableAgent(autogen.ConversableAgent):
         input_value = global_vars.input_future.result()
         global_vars.input_future = None
         return input_value
-
 class SightseeingPlanAgents():
     def __init__(self) -> None:
         self.llm_config=global_vars.llm_config
@@ -60,17 +85,15 @@ class SightseeingPlanAgents():
         重点：
         - 请使用中文与用户交互。
         - 用户可以指定其他Agent接手任务或是讨论，当用户提出类似要求时应该立刻满足他。
-        - 为了方便用户阅读，你的输出可以是以下两种格式：
-            1. 当你的输出包含具体的任务内容/计划时，你**必须**严格按照下面列出的“输出格式1”
-                输出格式1：
-                - 你的输出应该是**一份**json格式的输出，应该包括content与chat两部分，content是较长或较完整或较详细的任务内容/提议/计划，chat是较短的自己的想法或是下一步的计划，例子如下：
-                {
-                    "content":"# 具体的长内容，比如某个方案，使用Markdown格式",
-                    "chat":"较短的自己的想法、或是下一步的计划"
-                }
-            2. 当你的输出内容很短，或不包括具体的任务内容/计划时，你可以直接输出
+        - 为了方便用户阅读，你的输出**必须**严格按照下面列出的“输出格式”
+            输出格式：
+            - 你的输出应该是json格式的，应该包括如下例子中的参数：
+            {
+                "content":"可选参数 只有是具体的长内容（大于5句话），比如某个长或较完整或较详细的任务内容/提议/计划，时才使用这个参数。否则则忽略这个参数",
+                "chat":"较短的自己的想法、或是下一步的打算"
+            }
             """,
-            #Only say APPROVED in most cases, and say exit when nothing to be done further. Do not say others.
+            
             code_execution_config=False,
             #default_auto_reply="Approved", 
             human_input_mode="ALWAYS",
@@ -78,7 +101,7 @@ class SightseeingPlanAgents():
         )
         m_user_proxy.register_reply(
             [autogen.Agent, None],
-            reply_func=print_messages, 
+            reply_func=print_message_callback, 
             config={"callback": None},
         )
         return m_user_proxy
@@ -88,26 +111,38 @@ class SightseeingPlanAgents():
         m_planner = autogen.AssistantAgent(
             name="Planner",
             human_input_mode="NEVER",
-            system_message='''你是Planner，提出一个计划，根据Admin与Critic的反馈修改计划，直到Admin批准。
-        计划可以涉及Sightseeing Agent（负责规划活动和游览）与Financial Agent（负责预算分配和控制）
-        首先解释计划，清楚地列出计划中每一步分别需要谁来参与
+            system_message='''你是Planner，提出一个为了完成任务的步骤，根据Admin与Critic的反馈修改这个步骤，直到Admin批准。
+        各个步骤的执行人可以使用Sightseeing Agent（负责规划活动和游览）与Financial Agent（负责预算分配和控制）
+        首先解释步骤，清楚地列出步骤的执行人分别是谁
 
         重点：
-        - 为了方便用户阅读，你的输出可以是以下两种格式：
-            1. 当你的输出包含具体的任务内容/计划时，你**必须**严格按照下面列出的“输出格式1”
-                输出格式1：
-                - 你的输出应该是**一份**json格式的输出，应该包括content与chat两部分，content是较长或较完整或较详细的任务内容/提议/计划，chat是较短的自己的想法或是下一步的计划，例子如下：
-                {
-                    "content":"# 具体的长内容，比如某个方案，使用Markdown格式",
-                    "chat":"较短的自己的想法、或是下一步的计划"
-                }
-            2. 当你的输出内容很短，或不包括具体的任务内容/计划时，你可以直接输出
+        - 为了方便用户阅读，你的输出**必须**严格按照下面列出的“输出格式”
+            输出格式：
+            - 你的输出应该是json格式的，应该包括如下例子中的参数：
+            {
+                "content":"可选参数 只有是具体的长内容（大于5句话），比如某个长或较完整或较详细的任务内容/提议/计划，时才使用这个参数。否则则忽略这个参数",
+                "chat":"较短的自己的想法、或是下一步的打算",
+                "steps":[ # 为了完成用户的要求，按顺序列出完成这个任务的步骤/次序
+                    {
+                        "name":"Title for step1",
+                        "content":"content for step1"
+                    },
+                    {
+                        "name":"Title for step2",
+                        "content":"content for step2"
+                    }
+                ],
+                "current_step":1 # 当前进行的任务编号
+            }
+        - 注意processes属性代表的是完成这个任务的步骤/次序，而非任务的大纲,比如：1. 向用户询问细节信息 2. 搜集南京相关景点 3. 为不同成员分配景点 4. 根据景点分配规划时间表
+        - 当你提出步骤后，请通过Admin询问用户意见，只有用户批准后才能执行
+        - 当你想向用户提问，或者希望获取更多信息时，请通过Admin向用户提问
         ''',
             llm_config=self.llm_config,
         )
         m_planner.register_reply(
             [autogen.Agent, None],
-            reply_func=print_messages, 
+            reply_func=print_message_callback, 
             config={"callback": None},
         )
         return m_planner
@@ -118,22 +153,22 @@ class SightseeingPlanAgents():
             system_message="""你是Critic，需要再次检查其他Agent给出的任务计划、任务结果，并提出反馈
 
         重点：
-        - 为了方便用户阅读，你的输出可以是以下两种格式：
-            1. 当你的输出包含具体的任务内容/计划时，你**必须**严格按照下面列出的“输出格式1”
-                输出格式1：
-                - 你的输出应该是**一份**json格式的输出，应该包括content与chat两部分，content是较长或较完整或较详细的任务内容/提议/计划，chat是较短的自己的想法或是下一步的计划，例子如下：
-                {
-                    "content":"# 具体的长内容，比如某个方案，使用Markdown格式",
-                    "chat":"较短的自己的想法、或是下一步的计划"
-                }
-            2. 当你的输出内容很短，或不包括具体的任务内容/计划时，你可以直接输出
+        - 为了方便用户阅读，你的输出**必须**严格按照下面列出的“输出格式”
+            输出格式：
+            - 你的输出应该是json格式的，应该包括如下例子中的参数：
+            {
+                "content":"可选参数 只有是具体的长内容（大于5句话），比如某个长或较完整或较详细的任务内容/提议/计划，时才使用这个参数。否则则忽略这个参数",
+                "chat":"较短的自己的想法、或是下一步的打算"
+            }
+        - 当你想向用户提问，或者希望获取更多信息时，请通过Admin向用户提问
+        - 当你在于Planner讨论时，
             """,
             llm_config=self.llm_config,
             human_input_mode="NEVER",
         )
         m_critic.register_reply(
             [autogen.Agent, None],
-            reply_func=print_messages, 
+            reply_func=print_message_callback, 
             config={"callback": None},
         )
         return m_critic
@@ -156,20 +191,18 @@ class SightseeingPlanAgents():
         - 规划过程中面对多个可选项时，你不能自己决定，应该询问用户的意见。
         - 在与用户讨论方案时，你应该提出具有启发性的细节问题，因为用户也不清楚自己想要什么，你需要帮助他找到他想要的安排，例如：对解决问题需要补充的细节信息、用户可能忽略的需求等。
         - 用户可以指定其他Agent接手任务或是讨论，当用户提出类似要求时应该立刻满足他。
-        - 为了方便用户阅读，你的输出可以是以下两种格式：
-            1. 当你的输出包含具体的任务内容/计划时，你**必须**严格按照下面列出的“输出格式1”
-                输出格式1：
-                - 你的输出应该是**一份**json格式的输出，应该包括content与chat两部分，content是较长或较完整或较详细的任务内容/提议/计划，chat是较短的自己的想法或是下一步的计划，例子如下：
-                {
-                    "content":"# 具体的长内容，比如某个方案，使用Markdown格式",
-                    "chat":"较短的自己的想法、或是下一步的计划"
-                }
-            2. 当你的输出内容很短，或不包括具体的任务内容/计划时，你可以直接输出
+        - 为了方便用户阅读，你的输出**必须**严格按照下面列出的“输出格式”
+            输出格式：
+            - 你的输出应该是json格式的，应该包括如下例子中的参数：
+            {
+                "content":"可选参数 只有是具体的长内容（大于5句话），比如某个长或较完整或较详细的任务内容/提议/计划，时才使用这个参数。否则则忽略这个参数",
+                "chat":"较短的自己的想法、或是下一步的打算"
+            }
             ''',
         )
         m_financial_agent.register_reply(
             [autogen.Agent, None],
-            reply_func=print_messages, 
+            reply_func=print_message_callback, 
             config={"callback": None},
         )
         return m_financial_agent
@@ -192,20 +225,18 @@ class SightseeingPlanAgents():
         - 规划过程中面对多个可选项时，你不能自己决定，应该询问用户的意见。
         - 在与用户讨论方案时，你应该提出具有启发性的细节问题，因为用户也不清楚自己想要什么，你需要帮助他找到他想要的安排，例如：对解决问题需要补充的细节信息、用户可能忽略的需求等。
         - 用户可以指定其他Agent接手任务或是讨论，当用户提出类似要求时应该立刻满足他。
-        - 为了方便用户阅读，你的输出可以是以下两种格式：
-            1. 当你的输出包含具体的任务内容/计划时，你**必须**严格按照下面列出的“输出格式1”
-                输出格式1：
-                - 你的输出应该是**一份**json格式的输出，应该包括content与chat两部分，content是较长或较完整或较详细的任务内容/提议/计划，chat是较短的自己的想法或是下一步的计划，例子如下：
-                {
-                    "content":"# 具体的长内容，比如某个方案，使用Markdown格式",
-                    "chat":"较短的自己的想法、或是下一步的计划"
-                }
-            2. 当你的输出内容很短，或不包括具体的任务内容/计划时，你可以直接输出
+        - 为了方便用户阅读，你的输出**必须**严格按照下面列出的“输出格式”
+            输出格式：
+            - 你的输出应该是json格式的，应该包括如下例子中的参数：
+            {
+                "content":"可选参数 只有是具体的长内容（大于5句话），比如某个长或较完整或较详细的任务内容/提议/计划，时才使用这个参数。否则则忽略这个参数",
+                "chat":"较短的自己的想法、或是下一步的打算"
+            }
             ''',
         )
         m_sightseeing_agent.register_reply(
             [autogen.Agent, None],
-            reply_func=print_messages, 
+            reply_func=print_message_callback, 
             config={"callback": None},
         )
         return m_sightseeing_agent
