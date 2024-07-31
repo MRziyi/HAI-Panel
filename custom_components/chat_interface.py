@@ -1,4 +1,5 @@
 import json
+import time
 import param
 import panel as pn
 
@@ -15,7 +16,7 @@ avatars = {
     "FinancialAgent": "💵",
     "SightseeingAgent":"🏜️",
     "Admin":"👨🏻‍💼",
-    'Planner':"🗓",
+    'ProcessManager':"⏩️",
     'Critic':'📝',
     "User":'😉',
     "System":"⚙️"
@@ -28,10 +29,12 @@ class ChatInterface(Viewer):
 
     def chat_send(self,event):
         text=self.text_input.value
+        if(text==''):
+            return
         self.text_input.value=""
         self.add_message(text,"User")
         if global_vars.input_future and not global_vars.input_future.done():
-            global_vars.input_future.set_result()
+            global_vars.input_future.set_result(text)
         else:
             # 如果没有 Agent 在等待用户输入，触发 KeyBoardInterrupt
             global_vars.is_interrupted=self.text_input.value
@@ -46,15 +49,14 @@ class ChatInterface(Viewer):
             with open('chat_history.txt', 'r') as f:  # 使用 'r' 模式读取文件
                 text = f.read()
             results = json.loads(text)
-            print(results)
-            global_vars.groupchat_manager.resume(results)
-            
+            self.content=''
+            self.messages.clear()
             # 遍历列表中的每个元素，并调用 send_chat_message 函数
             for message in results:
-                self_name = message.get('name', 'Unknown')  # 假设发送者是系统
-                content = message.get('content', '')
+                time.sleep(0.1)
                 print_message("x", message)
             self.add_message("Chat history imported!", name="System")
+            global_vars.groupchat_manager.resume(results)
         except FileNotFoundError:
             self.add_message("Chat history file not found!", name="System")
         except json.JSONDecodeError:
@@ -84,6 +86,7 @@ class ChatInterface(Viewer):
         start_stop_button = pn.widgets.Button(name='开始识别', button_type='primary', width=330)
         stt_engine = STTEngine(start_stop_button, self.text_input)
         start_stop_button.on_click(stt_engine.start_stop_recognition)
+        start_stop_button.on_click(self.chat_send)
 
         input_text_layout = pn.Row(self.text_input, send_button)
         input_function_layout = pn.Row(start_stop_button,export_button, import_button)
