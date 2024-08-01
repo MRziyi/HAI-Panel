@@ -60,7 +60,6 @@ def init():
 init()
 # Run the chat function as a task
 global_vars.chat_task = asyncio.create_task(initiate_chat(
-    # "南京旅行",
     '''我需要带领4人的团队前往南京参加学术会议，同时在南京景点参观。
 * 地点：东南大学，南京。
 * 议程：

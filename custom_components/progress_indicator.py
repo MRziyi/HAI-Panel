@@ -13,6 +13,10 @@ class ProgressIndicator(Viewer):
         self._markdown = pn.pane.Markdown()
         self.tasks=[
             {
+                "name":"测试系统",
+                "content":"本步骤是为了让Admin测试系统的各个功能，没有具体的目标，当Admin提出正式开始实验后进入下一步骤"
+            },
+            {
                 "name":"为不同成员分配景点",
                 "content":"由SightseeingAgent根据用户的需求特点搜索并列出南京的景点，与Admin讨论给成员的景点分配，之后由Critic给出建议并改进"
             },

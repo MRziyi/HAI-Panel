@@ -46,7 +46,7 @@ class ChatInterface(Viewer):
 
     def chat_import(self,event):
         try:
-            with open('chat_history.txt', 'r') as f:  # 使用 'r' 模式读取文件
+            with open('chat_history/chat_history.txt', 'r') as f:  # 使用 'r' 模式读取文件
                 text = f.read()
             results = json.loads(text)
             self.content=''
@@ -65,7 +65,7 @@ class ChatInterface(Viewer):
 
     def chat_export(self,event):
         try:
-            with open('chat_history.txt', 'w') as f:  # 使用 'w' 模式写入文件
+            with open('chat_history/chat_history.txt', 'w') as f:  # 使用 'w' 模式写入文件
                 f.write(json.dumps(global_vars.groupchat.messages, indent=4))  # 使用缩进格式化输出
             self.add_message("Chat history exported!",name="System")
         except Exception as e:
