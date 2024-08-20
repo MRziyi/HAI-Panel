@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 import param
@@ -5,7 +6,7 @@ import panel as pn
 
 from panel.viewable import Viewer
 
-from pages.execute_page.components.agents import print_message
+from pages.execute_page.components.agents import print_formatted_message
 import global_vars
 from pages.execute_page.components.stt_engine import STTEngine
 
@@ -26,13 +27,10 @@ class ChatInterface(Viewer):
         if global_vars.input_future and not global_vars.input_future.done():
             global_vars.input_future.set_result(text)
         else:
-            # 如果没有 Agent 在等待用户输入，触发 KeyBoardInterrupt
-            global_vars.is_interrupted=self.text_input.value
             global_vars.chat_task.cancel()  # 取消任务
-            if global_vars.input_future and global_vars.input_future.done():
-                print(f"Canceled! with history:{global_vars.input_future.result()}")
-            else: 
-                print("Canceled!")
+            user_proxy = global_vars.groupchat.agent_by_name("Admin")
+            global_vars.chat_task = asyncio.create_task(user_proxy.a_initiate_chat(recipient=global_vars.groupchat_manager, message=text, clear_history=False))
+            
 
     def chat_import(self,event):
         try:
@@ -44,9 +42,10 @@ class ChatInterface(Viewer):
             # 遍历列表中的每个元素，并调用 send_chat_message 函数
             for message in results:
                 time.sleep(0.1)
-                print_message("x", message)
+                print_formatted_message("x", message)
             self.add_message("Chat history imported!", name="System")
-            global_vars.groupchat_manager.resume(results)
+            last_agent, last_message=global_vars.groupchat_manager.resume(results,remove_termination_string='')
+            global_vars.chat_task = asyncio.create_task(last_agent.a_initiate_chat(recipient=global_vars.groupchat_manager, message=last_message, clear_history=False))
         except FileNotFoundError:
             self.add_message("Chat history file not found!", name="System")
         except json.JSONDecodeError:
@@ -66,6 +65,7 @@ class ChatInterface(Viewer):
         self.avatars= {agent["name"]: agent["avatar"] for agent in self.agents}
         self.avatars["System"] = "⚙️"
         self.avatars["Admin"] = "👨🏻‍💼"
+        self.avatars["User"] = "😉"
         self._markdown = pn.pane.Markdown(sizing_mode='stretch_both')
 
         self.refresh_messages()

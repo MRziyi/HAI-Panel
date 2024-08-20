@@ -30,24 +30,24 @@ class StepList(pn.viewable.Viewer):
 <task>{self.task_name}: {self.task_req}</task>
 <agents>{self.agents}</agents>'''+
 '''
-<example_task>行程规划：我需要带领4人的团队前往东南大学参加学术会议，同时在南京知名景点参观。你需要考虑时间安排、交通、资金等全面的因素，并且每个团队成员有着不同的喜好和倾向。请权衡内容，制定平衡合理的**观光景点安排**</example_task>
+<example_task>行程规划：我需要带领4人的团队前往东南大学参加学术会议，同时在南京知名景点参观。你需要考虑观光与学术会议的时间安排、餐饮、资金等全面的因素，并且每个团队成员有着不同的喜好和倾向。请权衡以下内容，制定平衡合理的观光计划、餐饮安排与预算计划。</example_task>
 <example_output>
 [
     {
         "name":"为不同成员分配景点",
-        "content":"由SightseeingAgent根据用户的需求特点搜索并列出南京的景点，与Admin讨论给成员的景点分配，之后由Critic给出建议并改进"
+        "content":"由EntertainmentAgent根据用户的需求特点搜索并列出南京的景点，与Admin讨论给成员的景点分配，之后由Critic给出建议并改进"
     },
     {
         "name":"规划时间表",
-        "content":"由SightseeingAgent根据Step1中的景点分配，参考会议时间安排进行，之后由Critic与Admin给出建议并改进"
+        "content":"由EntertainmentAgent根据Step1中的景点分配，参考会议时间安排进行，之后由Critic与Admin给出建议并改进"
+    },
+    {
+        "name":"规划餐饮安排",
+        "content":"由DiningAgent根据Step2中的时间安排，根据成员的喜好安排餐饮计划，之后由Critic与Admin给出建议并改进"
     },
     {
         "name":"列出预算表",
-        "content":"由FinanceAgent根据Step2中的景点选择列出预算表，之后由Critic给出建议并改进"
-    },
-    {
-        "name":"预算表调整",
-        "content":"由Admin与FinanceAgent和SightseeingAgent根据Step3中的景点选择列出预算表，调整预算与step2的安排，之后由Critic给出建议并改进"
+        "content":"由FinanceAgent根据Step2与Step3中的景点选择与餐饮安排列出预算表，之后由Critic给出建议并改进"
     },
     {
         "name":"输出观光计划",

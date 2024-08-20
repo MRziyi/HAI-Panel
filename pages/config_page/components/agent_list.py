@@ -66,13 +66,16 @@ class AgentList(pn.viewable.Viewer):
         # 使用正则表达式提取 JSON 内容
         json_pattern = re.compile(r'```json\n(.*?)```', re.DOTALL)
         json_match = json_pattern.search(raw_agent_list)
+        print(raw_agent_list)
         if json_match:
             json_content = json_match.group(1)
-            try:
-                self.agents = json.loads(json_content)
-            except json.JSONDecodeError as e:
-                self._layout.clear()
-                self._layout = pn.Column(f"解析失败：\n原始输出：\n{raw_agent_list}\n错误：{e}")
+        else:
+            json_content = raw_agent_list
+        try:
+            self.agents = json.loads(json_content)
+        except json.JSONDecodeError as e:
+            self._layout.clear()
+            self._layout = pn.Column(f"解析失败：\n原始输出：\n{raw_agent_list}\n错误：{e}")
         self.update_agents_list()
 
 
